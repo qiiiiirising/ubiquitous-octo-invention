@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 1. 全局环境变量：确保Node.js 24生效（解决弃用提示）
+    # 全局环境变量：强制所有Action使用Node.js 24（包括pnpm/action-setup）
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -18,27 +18,25 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. 官方pnpm安装方式（绝对不会丢PATH）
-    - name: Install pnpm (official method)
-      uses: pnpm/action-setup@v4  # 升级到最新版pnpm action
+    # 关键修复：不手动指定pnpm版本，让Action读取package.json中的版本
+    - name: Install pnpm (match package.json version)
+      uses: pnpm/action-setup@v4
       with:
-        version: 9
-        run_install: false  # 先不安装依赖，手动控制
+        # 移除version字段，自动读取package.json的packageManager
+        run_install: false
 
-    # 3. 配置Node.js（pnpm cache自动生效）
     - name: Set up Node.js 18
       uses: actions/setup-node@v4
       with:
         node-version: 18
         cache: 'pnpm'
 
-    # 4. 验证pnpm（必看日志）
-    - name: Check pnpm availability
+    # 验证pnpm版本（确认和package.json一致）
+    - name: Verify pnpm version
       run: |
         pnpm --version
         which pnpm
 
-    # 5. 安装依赖（此时pnpm绝对可用）
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
 
