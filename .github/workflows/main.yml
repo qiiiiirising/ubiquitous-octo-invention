@@ -10,41 +10,35 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 全局环境变量：解决Node.js 20弃用问题 + 强制pnpm路径
+    # 1. 全局环境变量：确保Node.js 24生效（解决弃用提示）
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      PNPM_HOME: /usr/local/bin
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 第一步先安装pnpm（独立步骤，确保PATH生效）
-    - name: Install pnpm globally (with PATH fix)
-      run: |
-        # 手动安装pnpm，指定版本9
-        npm install -g pnpm@9
-        # 确认pnpm路径并添加到系统PATH（多维度确保生效）
-        PNPM_PATH=$(which pnpm)
-        echo "PNPM_PATH=$PNPM_PATH" >> $GITHUB_ENV
-        echo "/usr/local/bin" >> $GITHUB_PATH
-        # 验证pnpm是否安装成功
-        pnpm --version || echo "pnpm install failed"
+    # 2. 官方pnpm安装方式（绝对不会丢PATH）
+    - name: Install pnpm (official method)
+      uses: pnpm/action-setup@v4  # 升级到最新版pnpm action
+      with:
+        version: 9
+        run_install: false  # 先不安装依赖，手动控制
 
-    - name: Set up Node.js 18 (with pnpm cache)
+    # 3. 配置Node.js（pnpm cache自动生效）
+    - name: Set up Node.js 18
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: 18
         cache: 'pnpm'
-        # 显式指定pnpm路径
-        cache-dependency-path: '**/pnpm-lock.yaml'
 
-    - name: Verify pnpm availability
+    # 4. 验证pnpm（必看日志）
+    - name: Check pnpm availability
       run: |
-        # 双重验证：检查路径 + 版本
-        which pnpm
         pnpm --version
+        which pnpm
 
+    # 5. 安装依赖（此时pnpm绝对可用）
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
 
