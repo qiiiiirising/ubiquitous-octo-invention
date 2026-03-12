@@ -1,4 +1,4 @@
-name: Build Android APK (Final YML Version)
+name: Build Android APK (Focus on Gradle)
 on:
   push:
     branches: [main, master]
@@ -16,34 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Node.js 18 and pnpm
-        run: |
-          # 手动安装Node.js 18（适配Linux x64）
-          curl -fsSL https://nodejs.org/dist/v18.20.2/node-v18.20.2-linux-x64.tar.xz | sudo tar -xJ -C /usr/local --strip-components=1
-          # 全局安装pnpm 9
-          npm install -g pnpm@9
-          # 打印版本信息（调试用）
-          echo "Node.js 版本: $(node -v)"
-          echo "pnpm 版本: $(pnpm -v)"
-          echo "当前PATH: $PATH"
-
-      - name: Install project dependencies
-        run: pnpm install --verbose
-
-      - name: Build H5 (debug mode)
-        run: |
-          # 先检查build:web命令是否存在
-          if pnpm run | grep -q "build:web"; then
-            pnpm build:web --verbose
-          else
-            echo "❌ 未找到 build:web 命令，以下是可用命令："
-            pnpm run
-            exit 1
-          fi
-
-      - name: Sync Capacitor to Android
-        run: npx cap sync android --verbose || echo "⚠️ Capacitor同步失败，继续尝试构建APK"
-
+      # 1. 仅安装Java（跳过Node.js/pnpm/前端构建，先排查Android本身）
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -51,14 +24,50 @@ jobs:
           java-version: 17
           cache: gradle
 
-      - name: Build Android Debug APK
+      # 2. 检查Android项目结构（关键调试）
+      - name: Check Android project structure
         run: |
-          chmod +x android/gradlew
-          cd android
-          ./gradlew assembleDebug --info --stacktrace
+          echo "===== 检查Android目录 ====="
+          ls -la android/ || echo "Android目录不存在"
+          echo "===== 检查build.gradle ====="
+          ls -la android/app/build.gradle || echo "app/build.gradle不存在"
+          echo "===== 检查gradlew ====="
+          ls -la android/gradlew || echo "gradlew不存在"
 
-      - name: Upload APK Artifact
-        if: always()  # 无论前面步骤是否失败，都尝试上传
+      # 3. 修复gradlew权限 + 打印gradle版本
+      - name: Fix gradlew permission & check gradle
+        run: |
+          if [ -f "android/gradlew" ]; then
+            chmod +x android/gradlew
+            cd android
+            ./gradlew --version
+          else
+            echo "❌ gradlew文件不存在，无法构建APK"
+            exit 1
+          fi
+
+      # 4. 清理+构建APK（打印完整错误日志）
+      - name: Clean & Build Debug APK
+        run: |
+          cd android
+          # 先清理旧构建产物
+          ./gradlew clean
+          # 构建Debug APK，打印完整堆栈
+          ./gradlew assembleDebug --stacktrace --debug || {
+            echo "===== Gradle构建失败，打印目录结构 ====="
+            ls -la app/build/outputs/ || echo "outputs目录不存在"
+            exit 1
+          }
+
+      # 5. 验证APK是否生成
+      - name: Verify APK exists
+        run: |
+          echo "===== 检查APK文件 ====="
+          ls -la android/app/build/outputs/apk/debug/ || echo "debug目录不存在"
+          ls -la android/app/build/outputs/apk/debug/app-debug.apk || echo "APK文件未生成"
+
+      # 6. 上传产物（仅当文件存在时）
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
