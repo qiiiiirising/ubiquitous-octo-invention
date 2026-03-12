@@ -10,24 +10,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 1. 强制Runner级别使用Node.js 24（最高优先级）
-    defaults:
-      run:
-        shell: bash
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    # 2. 全局环境变量兜底
+    # 1. 全局环境变量（Job级别，正确写法）
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      # 步骤级别强制指定Node.js 24
       env:
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     # 2. 极简安装Node.js + pnpm（跳过版本冲突）
     - name: Install Node.js 18 + pnpm
+      # 运行步骤时强制指定环境变量
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: |
         # 手动安装Node.js 18（避免setup-node的Node.js 20提示）
         curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
@@ -40,38 +38,42 @@ jobs:
 
     # 3. 安装依赖（跳过锁文件校验，避免锁文件问题）
     - name: Install dependencies
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: pnpm install
 
-    # 4. 跳过lint/tsc（非核心步骤，先保证构建成功）
-    # - name: Lint and Type Check
-    #   run: |
-    #     pnpm lint:build
-    #     pnpm tsc
-
-    # 5. 构建H5 + 同步Capacitor
+    # 4. 构建H5 + 同步Capacitor（容错执行）
     - name: Build H5 & Sync Capacitor
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: |
         pnpm build:web || echo "Build H5 failed, continue..."
         npx cap sync android || echo "Capacitor sync failed, continue..."
 
-    # 6. 配置Java + 构建APK
+    # 5. 配置Java + 构建APK
     - name: Set up Java 17
       uses: actions/setup-java@v4
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       with:
         distribution: 'temurin'
         java-version: '17'
         cache: 'gradle'
 
     - name: Grant permission & Build APK
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: |
         chmod +x android/gradlew
         cd android
         # 强制构建Debug APK（忽略非致命错误）
         ./gradlew assembleDebug --continue
 
-    # 7. 上传产物
+    # 6. 上传产物
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       with:
         name: app-debug
         path: android/app/build/outputs/apk/debug/app-debug.apk
