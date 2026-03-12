@@ -1,4 +1,4 @@
-name: Build Android APK (Focus on Gradle)
+name: Build Android APK (Fix Exit 127)
 on:
   push:
     branches: [main, master]
@@ -16,7 +16,59 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. 仅安装Java（跳过Node.js/pnpm/前端构建，先排查Android本身）
+      # 1. 安装基础依赖（确保系统工具齐全）
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl tar unzip openjdk-17-jdk
+          # 验证核心工具
+          curl --version || echo "curl缺失"
+          tar --version || echo "tar缺失"
+          java -version || echo "Java缺失"
+
+      # 2. 安装Node.js + pnpm（重建Capacitor环境）
+      - name: Install Node.js 18 + pnpm
+        run: |
+          # 安装Node.js 18（稳定版）
+          curl -fsSL https://nodejs.org/dist/v18.20.2/node-v18.20.2-linux-x64.tar.xz | sudo tar -xJ -C /usr/local --strip-components=1
+          # 安装pnpm
+          npm install -g pnpm@9
+          # 验证
+          node -v
+          pnpm -v
+
+      # 3. 安装项目依赖 + 初始化Capacitor（关键：生成Android目录）
+      - name: Install dependencies & init Capacitor
+        run: |
+          # 安装项目依赖
+          pnpm install
+          # 检查Capacitor是否安装
+          if ! npx cap -v; then
+            echo "安装Capacitor"
+            pnpm add @capacitor/cli @capacitor/android --save-dev
+          fi
+          # 初始化Capacitor（若未初始化）
+          npx cap init || echo "Capacitor已初始化"
+          # 添加Android平台（核心：生成android目录和gradlew）
+          npx cap add android || echo "Android平台已添加"
+          # 同步代码到Android
+          npx cap sync android
+
+      # 4. 验证Android目录和gradlew是否存在（解决exit 127的核心）
+      - name: Verify Android files exist
+        run: |
+          echo "===== 检查Android目录 ====="
+          ls -la android/
+          echo "===== 检查gradlew ====="
+          if [ ! -f "android/gradlew" ]; then
+            echo "❌ gradlew不存在，尝试手动生成"
+            cd android
+            ./gradlew wrapper || echo "生成gradlew失败"
+          fi
+          # 赋予执行权限
+          chmod +x android/gradlew
+
+      # 5. 配置Java + 构建APK
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -24,49 +76,18 @@ jobs:
           java-version: 17
           cache: gradle
 
-      # 2. 检查Android项目结构（关键调试）
-      - name: Check Android project structure
-        run: |
-          echo "===== 检查Android目录 ====="
-          ls -la android/ || echo "Android目录不存在"
-          echo "===== 检查build.gradle ====="
-          ls -la android/app/build.gradle || echo "app/build.gradle不存在"
-          echo "===== 检查gradlew ====="
-          ls -la android/gradlew || echo "gradlew不存在"
-
-      # 3. 修复gradlew权限 + 打印gradle版本
-      - name: Fix gradlew permission & check gradle
-        run: |
-          if [ -f "android/gradlew" ]; then
-            chmod +x android/gradlew
-            cd android
-            ./gradlew --version
-          else
-            echo "❌ gradlew文件不存在，无法构建APK"
-            exit 1
-          fi
-
-      # 4. 清理+构建APK（打印完整错误日志）
-      - name: Clean & Build Debug APK
+      - name: Build Debug APK
         run: |
           cd android
-          # 先清理旧构建产物
+          # 清理+构建
           ./gradlew clean
-          # 构建Debug APK，打印完整堆栈
-          ./gradlew assembleDebug --stacktrace --debug || {
-            echo "===== Gradle构建失败，打印目录结构 ====="
-            ls -la app/build/outputs/ || echo "outputs目录不存在"
+          ./gradlew assembleDebug --stacktrace || {
+            echo "===== 构建失败，打印日志 ====="
+            cat app/build/reports/tests/testDebugUnitTest/results/ || echo "无测试日志"
             exit 1
           }
 
-      # 5. 验证APK是否生成
-      - name: Verify APK exists
-        run: |
-          echo "===== 检查APK文件 ====="
-          ls -la android/app/build/outputs/apk/debug/ || echo "debug目录不存在"
-          ls -la android/app/build/outputs/apk/debug/app-debug.apk || echo "APK文件未生成"
-
-      # 6. 上传产物（仅当文件存在时）
+      # 6. 上传APK
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
