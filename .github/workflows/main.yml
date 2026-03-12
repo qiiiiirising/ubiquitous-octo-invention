@@ -5,34 +5,45 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:  # 允许在 GitHub 网页上手动触发
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 解决 Node.js 20 弃用问题：强制使用 Node.js 24 运行 Actions
+    # 全局环境变量：解决Node.js 20弃用问题 + 强制pnpm路径
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      PNPM_HOME: /usr/local/bin
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Node.js
+    # 第一步先安装pnpm（独立步骤，确保PATH生效）
+    - name: Install pnpm globally (with PATH fix)
+      run: |
+        # 手动安装pnpm，指定版本9
+        npm install -g pnpm@9
+        # 确认pnpm路径并添加到系统PATH（多维度确保生效）
+        PNPM_PATH=$(which pnpm)
+        echo "PNPM_PATH=$PNPM_PATH" >> $GITHUB_ENV
+        echo "/usr/local/bin" >> $GITHUB_PATH
+        # 验证pnpm是否安装成功
+        pnpm --version || echo "pnpm install failed"
+
+    - name: Set up Node.js 18 (with pnpm cache)
       uses: actions/setup-node@v4
       with:
-        node-version: '18'  # 项目使用的 Node 版本（可根据实际需求改为 20/22）
+        node-version: '18'
         cache: 'pnpm'
+        # 显式指定pnpm路径
+        cache-dependency-path: '**/pnpm-lock.yaml'
 
-    # 修复 pnpm 找不到的问题：手动安装并添加到 PATH
-    - name: Install pnpm
+    - name: Verify pnpm availability
       run: |
-        npm install -g pnpm@9
-        echo "PATH=$(npm bin -g):$PATH" >> $GITHUB_ENV
-
-    - name: Verify pnpm installation
-      run: |
-        pnpm --version  # 验证 pnpm 是否安装成功
+        # 双重验证：检查路径 + 版本
+        which pnpm
+        pnpm --version
 
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
@@ -42,7 +53,7 @@ jobs:
         pnpm lint:build
         pnpm tsc
 
-    - name: Set up Java
+    - name: Set up Java 17
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
