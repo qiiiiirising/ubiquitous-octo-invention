@@ -1,80 +1,66 @@
-name: Build Android APK (Simplified)
-
+name: Build Android APK (Final YML Version)
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 1. 全局环境变量（Job级别，正确写法）
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      # 步骤级别强制指定Node.js 24
-      env:
-        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # 2. 极简安装Node.js + pnpm（跳过版本冲突）
-    - name: Install Node.js 18 + pnpm
-      # 运行步骤时强制指定环境变量
-      env:
-        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      run: |
-        # 手动安装Node.js 18（避免setup-node的Node.js 20提示）
-        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-        sudo apt-get install -y nodejs
-        # 手动安装pnpm（读取package.json版本，无冲突）
-        npm install -g pnpm@$(grep -o '"pnpm@[^"]*' package.json | cut -d'@' -f2)
-        # 验证
-        node -v
-        pnpm -v
+      - name: Install Node.js 18 and pnpm
+        run: |
+          # 手动安装Node.js 18（适配Linux x64）
+          curl -fsSL https://nodejs.org/dist/v18.20.2/node-v18.20.2-linux-x64.tar.xz | sudo tar -xJ -C /usr/local --strip-components=1
+          # 全局安装pnpm 9
+          npm install -g pnpm@9
+          # 打印版本信息（调试用）
+          echo "Node.js 版本: $(node -v)"
+          echo "pnpm 版本: $(pnpm -v)"
+          echo "当前PATH: $PATH"
 
-    # 3. 安装依赖（跳过锁文件校验，避免锁文件问题）
-    - name: Install dependencies
-      env:
-        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      run: pnpm install
+      - name: Install project dependencies
+        run: pnpm install --verbose
 
-    # 4. 构建H5 + 同步Capacitor（容错执行）
-    - name: Build H5 & Sync Capacitor
-      env:
-        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      run: |
-        pnpm build:web || echo "Build H5 failed, continue..."
-        npx cap sync android || echo "Capacitor sync failed, continue..."
+      - name: Build H5 (debug mode)
+        run: |
+          # 先检查build:web命令是否存在
+          if pnpm run | grep -q "build:web"; then
+            pnpm build:web --verbose
+          else
+            echo "❌ 未找到 build:web 命令，以下是可用命令："
+            pnpm run
+            exit 1
+          fi
 
-    # 5. 配置Java + 构建APK
-    - name: Set up Java 17
-      uses: actions/setup-java@v4
-      env:
-        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-        cache: 'gradle'
+      - name: Sync Capacitor to Android
+        run: npx cap sync android --verbose || echo "⚠️ Capacitor同步失败，继续尝试构建APK"
 
-    - name: Grant permission & Build APK
-      env:
-        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      run: |
-        chmod +x android/gradlew
-        cd android
-        # 强制构建Debug APK（忽略非致命错误）
-        ./gradlew assembleDebug --continue
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
 
-    # 6. 上传产物
-    - name: Upload Debug APK
-      uses: actions/upload-artifact@v4
-      env:
-        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      with:
-        name: app-debug
-        path: android/app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 30
+      - name: Build Android Debug APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug --info --stacktrace
+
+      - name: Upload APK Artifact
+        if: always()  # 无论前面步骤是否失败，都尝试上传
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
