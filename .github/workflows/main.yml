@@ -10,21 +10,29 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 解决 Node.js 20 弃用问题：强制使用 Node.js 24 运行 Actions
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4  # 建议升级到最新稳定版（v3也可用，但v4更优）
+      uses: actions/checkout@v4
 
     - name: Set up Node.js
-      uses: actions/setup-node@v4  # 建议升级到最新稳定版
+      uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '18'  # 项目使用的 Node 版本（可根据实际需求改为 20/22）
         cache: 'pnpm'
 
+    # 修复 pnpm 找不到的问题：手动安装并添加到 PATH
     - name: Install pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 9
+      run: |
+        npm install -g pnpm@9
+        echo "PATH=$(npm bin -g):$PATH" >> $GITHUB_ENV
+
+    - name: Verify pnpm installation
+      run: |
+        pnpm --version  # 验证 pnpm 是否安装成功
 
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
@@ -35,7 +43,7 @@ jobs:
         pnpm tsc
 
     - name: Set up Java
-      uses: actions/setup-java@v4  # 建议升级到最新稳定版
+      uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
@@ -56,7 +64,7 @@ jobs:
         ./gradlew assembleDebug
 
     - name: Upload Debug APK
-      uses: actions/upload-artifact@v4  # 核心修复：v3 → v4（解决弃用报错）
+      uses: actions/upload-artifact@v4
       with:
         name: app-debug
         path: android/app/build/outputs/apk/debug/app-debug.apk
@@ -68,7 +76,7 @@ jobs:
         ./gradlew assembleRelease
 
     - name: Upload Release APK (unsigned)
-      uses: actions/upload-artifact@v4  # 核心修复：v3 → v4（解决弃用报错）
+      uses: actions/upload-artifact@v4
       with:
         name: app-release-unsigned
         path: android/app/build/outputs/apk/release/app-release-unsigned.apk
@@ -85,4 +93,4 @@ jobs:
         echo "### 📥 How to Download" >> $GITHUB_STEP_SUMMARY
         echo "1. Go to Actions tab" >> $GITHUB_STEP_SUMMARY
         echo "2. Click on this workflow run" >> $GITHUB_STEP_SUMMARY
-        echo "3. Download APK from Artifacts section at the bottom" >> $GITHUB_STEP_SUMMARY  # 补全语法错误
+        echo "3. Download APK from Artifacts section at the bottom" >> $GITHUB_STEP_SUMMARY
